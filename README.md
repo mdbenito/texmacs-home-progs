@@ -20,4 +20,6 @@ Just link your ~/.TeXmacs/progs to this project's folder.
 
 ## License ##
 
-GPLv3
+Icon borrowed from [exercism.io](http://exercism.io/languages/scheme/about).
+
+Everything else is GPLv3.
