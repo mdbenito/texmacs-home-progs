@@ -5,6 +5,9 @@
 (texmacs-module (convert markdown markdownout)
   (:use (convert tools output)))
 
+(define (hugo-extensions?)
+  (== (get-preference "texmacs->markdown:hugo-extensions") "#t"))
+
 (define (keep x)
   (cons (car x) (map serialize-markdown (cdr x))))
 
@@ -12,9 +15,10 @@
   (string-concatenate (map serialize-markdown (cdr x))))
 
 (define (md-document x)
-    (apply string-append
-           (map line-break-after
-                (map serialize-markdown (cdr x)))))
+  (apply string-append
+         (map line-break-after
+              (map line-break-after
+                   (map serialize-markdown (cdr x))))))
 
 (define (md-concat x)
   (apply string-append 
@@ -77,26 +81,18 @@
                      (== (car a) 'concat)
                      (== (cadr a) '(item)))
                 `(concat ,c ,@(cddr a))
-                `(concat "\n  " ,a)))))
+                `(concat "  " ,a)))))
     (with doc (cAr x)
       (serialize-markdown 
        `(document ,@(map transform (cdr doc)))))))
 
 (define (md-quotation x)
-  (let ((add-prefix
-         (lambda (a)
-           `(concat "> " ,a)))
-        (insert-line-before
-         (lambda (a)
-           `(concat "\n" ,a)))
+  (let ((add-prefix (lambda (a) `(concat "> " ,a)))
         (doc (cAr x)))
-    (with prefixed-children
-        (map add-prefix (cdr doc))
+    (with prefixed-children (map add-prefix (cdr doc))
       (serialize-markdown
-       `(document 
-          ,(car prefixed-children) 
-          ,@(map insert-line-before (cdr prefixed-children)))))))
-
+       `(document ,@prefixed-children)))))
+        
 (define (style-text style)
  (cond ((== style 'strong) "**")
        ((== style 'em) "*")
@@ -117,6 +113,19 @@
 (define (md-cite-detail x)
   (with detail (cAr x)
       (string-append (md-cite (cDr x)) " (" detail ")")))
+
+(define (md-hlink x)
+  (with payload (cdr x)
+    (string-append "[" (car payload) "]" "(" (cadr payload) ")")))    
+
+(define (md-figure x)
+  "Hugo {{< figure >}} shortcode"
+  (if (hugo-extensions?)
+      (with payload (cdr x)
+        (string-concatenate 
+         `("{{< figure src=\"" ,(car payload) 
+           "\" title=\"" ,@(map serialize-markdown (cdr payload)) "\" >}}")))
+      ""))
 
 ; TODO: option for exporting or not cites
 (define serialize-hash (make-ahash-table))
@@ -143,7 +152,9 @@
            (list 'h3 (md-header 3))
            (list 'h4 (md-header 4))
            (list 'cite md-cite)
-           (list 'cite-detail md-cite-detail)))
+           (list 'cite-detail md-cite-detail)
+           (list 'figure md-figure)
+           (list 'hlink md-hlink)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Public interface

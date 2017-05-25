@@ -24,6 +24,17 @@
 (define (add-doc-data x)
   (skip x))
 
+(define (parse-big-figure x)
+  ; Example input:
+  ; (big-figure (image "path-to.jpeg" "251px" "251px" "" "") 
+  ;             (document "caption"))
+  (let* ((img (cadr x))
+         (caption (texmacs->markdown (cAr x)))
+         (src (if (func? img 'image)
+                  (cadr img)
+                  '(document "Wrong image src"))))
+    (list 'figure src caption)))
+
 ;TODO: session, code blocks, hlink, href, bibliograpy
 (define conversion-hash (make-ahash-table))
 (map (lambda (l) (apply (cut ahash-set! conversion-hash <> <>) l)) 
@@ -66,6 +77,8 @@
            (list 'item keep)
            (list 'cite keep)
            (list 'cite-detail keep)
+           (list 'hlink keep)
+           (list 'big-figure parse-big-figure)
            (list 'bibliography skip-fully)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
