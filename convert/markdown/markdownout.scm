@@ -5,8 +5,75 @@
 (texmacs-module (convert markdown markdownout)
   (:use (convert tools output)))
 
+; "Global" state for document serialization.
+; Usage is wrapped within a "with-global" in serialize-markdown-document
+(define footnote-nr 0)
+(define equation-nr 0)  ; global counter for equations
+(define num-line-breaks 2)
+(define authors '())
+(define doc-title "")
+(define postlude "")
+
 (define (hugo-extensions?)
   (== (get-preference "texmacs->markdown:hugo-extensions") "#t"))
+
+(define (author-add x)
+  (set! authors (append authors (cdr x)))
+  (display* authors)
+  "")
+
+(define (prelude)
+  (if (not (hugo-extensions?)) ""
+      (let ((authors* (string-join
+                      (map (lambda (x) (string-append "\"" x "\"")) authors)
+                      ", "))
+            (date (strftime "%Y-%m-%d"(localtime (current-time)))))
+        (string-append "---\n\n"
+                       "title: \"" doc-title "\"\n"
+                       "date: \"" date "\"\n"
+                       "authors: [" authors* "]\n"
+                       "tags: [\"\"]\n"
+                       "paper_authors: [\"\", \"\"]\n"
+                       "paper_key: \"\"\n\n"
+                       "---\n\n"))))
+
+(define (postlude-add x)
+  (cond ((list? x) 
+         (set! postlude 
+               (string-concatenate `(,postlude
+                                     "\n[^" ,(number->string footnote-nr) "]: "
+                                     ,@(map serialize-markdown x)))))
+        ((string? x)
+         (set! postlude (string-append postlude "\n" x)))
+        (else 
+          (display* "postlude-add: bogus input " x "\n")
+          (noop))))
+
+; There are probably a dozen functions in TeXmacs doing the 
+; very same thing as these two...
+(define (replace-fun-sub where what? by)
+  (if (npair? where) (if (what? where) (by where) where)
+      (cons (if (what? (car where)) (by (car where))
+                (replace-fun-sub (car where) what? by))
+            (replace-fun-sub (cdr where) what? by))))
+
+; This looks familiar... :/
+(define (replace-fun where what by)
+ (cond ((not (procedure? what))
+        (replace-fun where (cut == <> what) by))
+       ((not (procedure? by))
+        (replace-fun where what (lambda (x) by)))
+       (else (replace-fun-sub where what by))))
+
+(define (replace-fun-list where rules)
+  (if (and (list>0? rules) (pair? (car rules)))
+      (replace-fun (replace-fun-list where (cdr rules))
+                   (caar rules) (cdar rules))
+      where))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; markdown to string serializations
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define (keep x)
   (cons (car x) (map serialize-markdown (cdr x))))
@@ -15,10 +82,9 @@
   (string-concatenate (map serialize-markdown (cdr x))))
 
 (define (md-document x)
-  (apply string-append
-         (map line-break-after
-              (map line-break-after
-                   (map serialize-markdown (cdr x))))))
+  (string-concatenate
+   (map line-breaks-after
+        (map serialize-markdown (cdr x)))))
 
 (define (md-concat x)
   (apply string-append 
@@ -29,8 +95,8 @@
       "#"
       (string-append "#" (prefix-header (- n 1)))))
 
-(define (line-break-after s)
-  (string-append s "\n"))
+(define (line-breaks-after s)
+  (string-concatenate `(,s ,@(make-list num-line-breaks "\n"))))
 
 (define (md-header n)
   (lambda (x)
@@ -39,7 +105,7 @@
                          " "
                          ,@(map serialize-markdown (cdr x))))
       (if (<= n 4)
-          (line-break-after res)
+          (line-breaks-after res)
           (string-append res " ")))))
 
 (define (math->latex t)
@@ -62,8 +128,15 @@
    (string-concatenate (map serialize-markdown (cdr x)))))
 
 (define (md-math* t)
-  ; TODO
-  t)
+  (replace-fun-list t
+   `((mathbbm . mathbb)
+     ((_) . "\\_")
+     (,(cut func? <> '!sub) . 
+       ,(lambda (x) (cons "\\_" (cdr x))))
+     (,(cut func? <> 'label) .   ; append tags to labels
+       ,(lambda (x) 
+          (set! equation-nr (+ 1 equation-nr))
+          (list '!concat x `(tag ,(number->string equation-nr))))))))
 
 (define (md-math t)
  "Takes a tree @t, and returns a valid MathJax-compatible LaTeX string"
@@ -89,14 +162,15 @@
 (define (md-quotation x)
   (let ((add-prefix (lambda (a) `(concat "> " ,a)))
         (doc (cAr x)))
-    (with prefixed-children (map add-prefix (cdr doc))
+    (with-global num-line-breaks 0
       (serialize-markdown
-       `(document ,@prefixed-children)))))
-        
+        `(document ,@(map add-prefix (cdr doc)))))))
+
 (define (style-text style)
  (cond ((== style 'strong) "**")
        ((== style 'em) "*")
        ((== style 'tt) "`")
+       ((== style 'strike) "~~")
        (else "")))
 
 (define (md-style x)
@@ -105,10 +179,11 @@
      `(,st ,@(map serialize-markdown (cdr x)) ,st))))
 
 (define (md-cite x)
-  "Convert to hugo-cites.
-   Multiple cites are not supported"
-  (with cite-key (cadr x)
-    (string-append "{{< cite " cite-key " >}}")))
+  (if (not (hugo-extensions?)) ""
+      (string-concatenate
+       (list-intersperse
+        (map (cut string-append "{{< cite " <> " >}}") (cdr x))
+        ", "))))
 
 (define (md-cite-detail x)
   (with detail (cAr x)
@@ -116,23 +191,40 @@
 
 (define (md-hlink x)
   (with payload (cdr x)
-    (string-append "[" (car payload) "]" "(" (cadr payload) ")")))    
+    (string-append "[" (serialize-markdown payload) "]"
+                   "(" (cadr payload) ")")))    
 
 (define (md-figure x)
   "Hugo {{< figure >}} shortcode"
   (if (hugo-extensions?)
       (with payload (cdr x)
-        (string-concatenate 
-         `("{{< figure src=\"" ,(car payload) 
-           "\" title=\"" ,@(map serialize-markdown (cdr payload)) "\" >}}")))
+        (with-global num-line-breaks 0
+          (string-concatenate 
+           `("{{< figure src=\"" ,(car payload) 
+             "\" title=\"" ,@(map serialize-markdown (cdr payload)) "\" >}}"))))
       ""))
 
-; TODO: option for exporting or not cites
+(define (md-footnote x)
+  ; Input: (footnote (document [stuff here]))
+  (set! footnote-nr (+ 1 footnote-nr))
+  (postlude-add (cdr x))
+  (string-append "[^" (number->string footnote-nr) "]"))
+
+(define (md-doc-title x)
+  (set! doc-title (serialize-markdown (cdr x)))
+  (if (hugo-extensions?) ""
+      ((md-header 1) (cdr x))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; dispatch
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 (define serialize-hash (make-ahash-table))
 (map (lambda (l) (apply (cut ahash-set! serialize-hash <> <>) l)) 
      (list (list 'strong md-style)
            (list 'em md-style)
            (list 'tt md-style)
+           (list 'strike md-style)
            (list 'document md-document)
            (list 'quotation md-quotation)
            (list 'theorem md-environment)
@@ -151,8 +243,11 @@
            (list 'h2 (md-header 2))
            (list 'h3 (md-header 3))
            (list 'h4 (md-header 4))
+           (list 'doc-title md-doc-title)
+           (list 'author-name author-add)
            (list 'cite md-cite)
            (list 'cite-detail md-cite-detail)
+           (list 'footnote md-footnote)
            (list 'figure md-figure)
            (list 'hlink md-hlink)))
 
@@ -162,7 +257,10 @@
 
 (tm-define (serialize-markdown x)
   (cond ((null? x) "")
-        ((string? x) x)
+        ((string? x) (cork->utf8 x))
+        ((symbol? x) 
+         (display* "Ignoring symbol " x "\n")
+         "")
         ((symbol? (car x))
          (with fun 
               (ahash-ref serialize-hash (car x))
@@ -175,3 +273,13 @@
          (apply string-append 
                 (cons (serialize-markdown (car x))
                       (map serialize-markdown (cdr x)))))))
+
+(tm-define (serialize-markdown-document x)
+  (with-global footnote-nr 0
+    (with-global equation-nr 0
+      (with-global authors '()
+        (with-global postlude ""
+          (with body (serialize-markdown x)
+            (string-append (prelude)
+                           body
+                           postlude)))))))
