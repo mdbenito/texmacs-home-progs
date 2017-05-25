@@ -8,32 +8,40 @@
         ))
 
 (define (keep x)
-  (cons (car x) (map texmacs->markdown (cdr x))))
+  (cons (car x) (map texmacs->markdown* (cdr x))))
 
 (define (change-to func)
   (lambda (x)
-    (cons func (map texmacs->markdown (cdr x)))))
+    (cons func (map texmacs->markdown* (cdr x)))))
 
 (define (skip x)
-  "Process only the last element. Useful for with tags."
-  (texmacs->markdown (cAr x)))
+  (map texmacs->markdown* (cdr x)))
 
 (define (skip-fully x)
   '())
-
-(define (add-doc-data x)
-  (skip x))
 
 (define (parse-big-figure x)
   ; Example input:
   ; (big-figure (image "path-to.jpeg" "251px" "251px" "" "") 
   ;             (document "caption"))
-  (let* ((img (cadr x))
-         (caption (texmacs->markdown (cAr x)))
-         (src (if (func? img 'image)
-                  (cadr img)
+  (let* ((img (tm-ref x 0))
+         (caption (texmacs->markdown* (tm-ref x 1)))
+         (src (if (tm-is? img 'image) 
+                  (tm-ref img 0)
                   '(document "Wrong image src"))))
     (list 'figure src caption)))
+
+(define (parse-with x)
+  ; HACK: we end up calling ourselves with (with "stuff"), which
+  ; actually is a malformed 'with tag but it's handy
+  (cond ((== 1 (tm-length x)) (texmacs->markdown* (tm-ref x 0)))
+        ((and (== "font-series" (tm-ref x 0))
+              (== "bold" (tm-ref x 1)))
+         `(strong ,(parse-with (cons 'with (cdddr x)))))
+        ((and (== "font-shape" (tm-ref x 0))
+              (== "italic" (tm-ref x 1)))
+         `(em ,(parse-with (cons 'with (cdddr x)))))
+        (else (skip x))))
 
 ;TODO: session, code blocks, hlink, href, bibliograpy
 (define conversion-hash (make-ahash-table))
@@ -41,12 +49,14 @@
      (list (list 'strong keep)
            (list 'dfn (change-to 'strong))
            (list 'em keep)
+           (list 'strike-through (change-to 'strike)) ; non-standard extension
            (list 'samp (change-to 'tt))
            (list 'python (change-to 'tt))
            (list 'cpp (change-to 'tt))
            (list 'scheme (change-to 'tt))
            (list 'verbatim (change-to 'tt))
-           (list 'doc-data add-doc-data)
+           (list 'author-name identity)
+           (list 'author-email skip-fully)
            (list 'document keep)
            (list 'quotation keep)
            (list 'theorem keep)
@@ -58,13 +68,13 @@
            (list 'equation identity)
            (list 'equation* identity)
            (list 'concat keep)
-           (list 'doc-title (change-to 'h1))
+           (list 'doc-title keep)
            (list 'section (change-to 'h2))
            (list 'subsection (change-to 'h3))
            (list 'subsubsection (change-to 'h4))
            (list 'paragraph (change-to 'strong))
            (list 'subparagraph (change-to 'strong))
-           (list 'with skip)
+           (list 'with parse-with)
            (list 'itemize keep)
            (list 'itemize-minus (change-to 'itemize))
            (list 'itemize-dot (change-to 'itemize))
@@ -79,13 +89,10 @@
            (list 'cite-detail keep)
            (list 'hlink keep)
            (list 'big-figure parse-big-figure)
+           (list 'footnote keep)
            (list 'bibliography skip-fully)))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Public interface
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(tm-define (texmacs->markdown x)
+(define (texmacs->markdown* x)
   (cond ((not (list>0? x)) x)
         ((symbol? (car x))
          (with fun 
@@ -96,4 +103,13 @@
                   (display* "Skipped " (car x) "\n")
                   (skip x)))))
         (else
-         (cons (texmacs->markdown (car x)) (texmacs->markdown (cdr x))))))
+         (cons (texmacs->markdown* (car x)) (texmacs->markdown* (cdr x))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Public interface
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(tm-define (texmacs->markdown x)
+  (if (!= (tmfile? x) #f)
+      (texmacs->markdown* (tmfile? x))
+      (texmacs->markdown* x)))
