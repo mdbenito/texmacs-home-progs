@@ -1,21 +1,37 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Markdown-stree to markdown-document or markdown-snippet converter
+;;
+;; MODULE      : tmmarkdown.scm
+;; DESCRIPTION : markdown-stree to markdown-document or markdown-snippet
+;; COPYRIGHT   : (C) 2017 Ana Cañizares García and Miguel de Benito Delgado
+;;
+;; This software falls under the GNU general public license version 3 or later.
+;; It comes WITHOUT ANY WARRANTY WHATSOEVER. For details, see the file LICENSE
+;; in the root directory or <http://www.gnu.org/licenses/gpl-3.0.html>.
+;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (texmacs-module (convert markdown markdownout)
   (:use (convert tools output)))
 
-; "Global" state for document serialization.
-; Usage is wrapped within a "with-global" in serialize-markdown-document
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; "Global" state for document serialization and config options
+;; Usage is wrapped within a "with-global" in serialize-markdown-document
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 (define footnote-nr 0)
 (define equation-nr 0)  ; global counter for equations
 (define num-line-breaks 2)
 (define authors '())
 (define doc-title "")
 (define postlude "")
+(define labels '())
 
 (define (hugo-extensions?)
   (== (get-preference "texmacs->markdown:hugo-extensions") "#t"))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Helper routines
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define (author-add x)
   (set! authors (append authors (cdr x)))
@@ -23,6 +39,7 @@
   "")
 
 (define (prelude)
+  "Output Hugo frontmatter"
   (if (not (hugo-extensions?)) ""
       (let ((authors* (string-join
                       (map (lambda (x) (string-append "\"" x "\"")) authors)
@@ -134,14 +151,22 @@
      (,(cut func? <> '!sub) . 
        ,(lambda (x) (cons "\\_" (cdr x))))
      (,(cut func? <> 'label) .   ; append tags to labels
-       ,(lambda (x) 
+       ,(lambda (x)
           (set! equation-nr (+ 1 equation-nr))
-          (list '!concat x `(tag ,(number->string equation-nr))))))))
+          (with label-name (number->string equation-nr)
+            (ahash-set! labels (cadr x) label-name)
+            (list '!concat x `(tag ,label-name))))))))
 
 (define (md-math t)
  "Takes a tree @t, and returns a valid MathJax-compatible LaTeX string"
  (with ltx (math->latex t)
    (serialize-latex (md-math* ltx))))
+
+(define (md-eqref x)
+  (let* ((label (cadr x))
+         (err-msg (string-append "undefined label " label))
+         (label-name (ahash-ref labels label err-msg)))
+    (string-append "(" label-name ")")))
 
 (define (md-list x)
   (let* ((c (cond ((== (car x) 'itemize) "* ")
@@ -162,7 +187,7 @@
 (define (md-quotation x)
   (let ((add-prefix (lambda (a) `(concat "> " ,a)))
         (doc (cAr x)))
-    (with-global num-line-breaks 0
+    (with-global num-line-breaks 1
       (serialize-markdown
         `(document ,@(map add-prefix (cdr doc)))))))
 
@@ -215,6 +240,12 @@
   (if (hugo-extensions?) ""
       ((md-header 1) (cdr x))))
 
+(define (md-block x)
+  (with-global num-line-breaks 1
+    (with syntax (tm-ref x 0)
+      (string-concatenate 
+       `("```" ,syntax "\n" ,@(map serialize-markdown (cdr x)) "```\n")))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; dispatch
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -225,6 +256,7 @@
            (list 'em md-style)
            (list 'tt md-style)
            (list 'strike md-style)
+           (list 'block md-block)
            (list 'document md-document)
            (list 'quotation md-quotation)
            (list 'theorem md-environment)
@@ -247,6 +279,7 @@
            (list 'author-name author-add)
            (list 'cite md-cite)
            (list 'cite-detail md-cite-detail)
+           (list 'eqref md-eqref)
            (list 'footnote md-footnote)
            (list 'figure md-figure)
            (list 'hlink md-hlink)))
@@ -275,11 +308,12 @@
                       (map serialize-markdown (cdr x)))))))
 
 (tm-define (serialize-markdown-document x)
-  (with-global footnote-nr 0
-    (with-global equation-nr 0
-      (with-global authors '()
-        (with-global postlude ""
-          (with body (serialize-markdown x)
-            (string-append (prelude)
-                           body
-                           postlude)))))))
+  (with-global labels (make-ahash-table)
+    (with-global footnote-nr 0
+      (with-global equation-nr 0
+        (with-global authors '()
+          (with-global postlude ""
+            (with body (serialize-markdown x)
+              (string-append (prelude)
+                             body
+                             postlude))))))))
