@@ -1,23 +1,44 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; TeXmacs-stree to markdown-stree converter
+;;
+;; MODULE      : tmmarkdown.scm
+;; DESCRIPTION : TeXmacs-stree to markdown-stree converter
+;; COPYRIGHT   : (C) 2017 Ana Cañizares García and Miguel de Benito Delgado
+;;
+;; This software falls under the GNU general public license version 3 or later.
+;; It comes WITHOUT ANY WARRANTY WHATSOEVER. For details, see the file LICENSE
+;; in the root directory or <http://www.gnu.org/licenses/gpl-3.0.html>.
+;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (texmacs-module (convert markdown tmmarkdown)
-  (:use (convert markdown markdownout)
-        ;(convert markdown markdowntm)
-        ))
+  (:use (convert markdown markdownout)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Helper functions for the transformation of strees and dispatcher
+;; TODO: use TeXmacs' logic-dispatch, export sessions, bibliography
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+; For some reason we always receive an stree, so we cannot use tm-file?
+; because it expects its argument to be a tree and at some point queries a
+; string for its tree-label and obviously fails... duh.
+(define (is-file? x)
+  (and (func? x 'document)
+       (== 1 (length (select x '(body))))))
 
 (define (keep x)
+  "Recursively processes @x while leaving its func untouched."
   (cons (car x) (map texmacs->markdown* (cdr x))))
 
 (define (change-to func)
+  ; (a . b) -> (func . b)
   (lambda (x)
     (cons func (map texmacs->markdown* (cdr x)))))
 
 (define (skip x)
+  "Recursively processes @x and drops its func."
   (map texmacs->markdown* (cdr x)))
 
-(define (skip-fully x)
+(define (drop x)
   '())
 
 (define (parse-big-figure x)
@@ -41,9 +62,27 @@
         ((and (== "font-shape" (tm-ref x 0))
               (== "italic" (tm-ref x 1)))
          `(em ,(parse-with (cons 'with (cdddr x)))))
+        ((and (== "mode" (tm-ref x 0))
+              (== "prog" (tm-ref x 1)))
+         `(tt ,(parse-with (cons 'with (cdddr x)))))
         (else (skip x))))
 
-;TODO: session, code blocks, hlink, href, bibliograpy
+; TO-DO
+(define (process-bibliography x)
+  ; Input:
+  ; (bibliography "bib-name" "bib-type" "bib-file" 
+  ;   (doc (bib-list "n" (doc (concat 1...) (concat 2... ) ... (concat n...)))))
+  '())
+
+(define (code-block syntax)
+  (lambda (x)
+    `(block ,syntax ,@(cdr x))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Dispatch
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
 (define conversion-hash (make-ahash-table))
 (map (lambda (l) (apply (cut ahash-set! conversion-hash <> <>) l)) 
      (list (list 'strong keep)
@@ -53,10 +92,20 @@
            (list 'samp (change-to 'tt))
            (list 'python (change-to 'tt))
            (list 'cpp (change-to 'tt))
-           (list 'scheme (change-to 'tt))
+           (list 'scm (change-to 'tt))
+           (list 'mmx (change-to 'tt))
+           (list 'scilab (change-to 'tt))
+           (list 'shell (change-to 'tt))
            (list 'verbatim (change-to 'tt))
+           (list 'verbatim-code (code-block ""))
+           (list 'scm-code (code-block "scheme"))
+           (list 'cpp-code (code-block "c++"))
+           (list 'mmx-code (code-block "mmx"))
+           (list 'python-code (code-block "python"))
+           (list 'scilab-code (code-block "scilab"))
+           (list 'shell-code (code-block "shell"))
            (list 'author-name identity)
-           (list 'author-email skip-fully)
+           (list 'author-email drop)
            (list 'document keep)
            (list 'quotation keep)
            (list 'theorem keep)
@@ -88,9 +137,10 @@
            (list 'cite keep)
            (list 'cite-detail keep)
            (list 'hlink keep)
+           (list 'eqref keep)
            (list 'big-figure parse-big-figure)
            (list 'footnote keep)
-           (list 'bibliography skip-fully)))
+           (list 'bibliography process-bibliography)))
 
 (define (texmacs->markdown* x)
   (cond ((not (list>0? x)) x)
@@ -110,6 +160,6 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (tm-define (texmacs->markdown x)
-  (if (!= (tmfile? x) #f)
-      (texmacs->markdown* (tmfile? x))
+  (if (is-file? x)
+      (texmacs->markdown* (car (select x '(body))))
       (texmacs->markdown* x)))
