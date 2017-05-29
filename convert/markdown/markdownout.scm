@@ -19,36 +19,52 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define footnote-nr 0)
-(define equation-nr 0)  ; global counter for equations
+(define label-nr 0)  ; global counter for labels (incl. labeled equations)
+(define equation-nr 0)
+(define environment-nr 0)  ; global counter for numbered environments
 (define num-line-breaks 2)
+(define paragraph-width #f)
 (define authors '())
 (define doc-title "")
 (define postlude "")
 (define labels '())
+(define indent "")
+(define (first-indent) indent)
 
 (define (hugo-extensions?)
-  (== (get-preference "texmacs->markdown:hugo-extensions") "#t"))
+  (== (get-preference "texmacs->markdown:hugo-extensions") "on"))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Helper routines
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define (indent-increment s)
+  (string-append indent s))
 
 (define (author-add x)
   (set! authors (append authors (cdr x)))
   (display* authors)
   "")
 
+(define (indent-decrement n)
+  (lambda () 
+    (if (> (string-length indent) n)
+        (string-drop-right indent n)
+        "")))
+
 (define (prelude)
   "Output Hugo frontmatter"
   (if (not (hugo-extensions?)) ""
       (let ((authors* (string-join
-                      (map (lambda (x) (string-append "\"" x "\"")) authors)
-                      ", "))
+                       (map (cut string-append "\"" <> "\"") authors)
+                       ", "))
+            (first-author (if (list>0? authors) (car authors) ""))
             (date (strftime "%Y-%m-%d"(localtime (current-time)))))
         (string-append "---\n\n"
                        "title: \"" doc-title "\"\n"
-                       "date: \"" date "\"\n"
+                       "author: \"" first-author "\"\n"
                        "authors: [" authors* "]\n"
+                       "date: \"" date "\"\n"
                        "tags: [\"\"]\n"
                        "paper_authors: [\"\", \"\"]\n"
                        "paper_key: \"\"\n\n"
@@ -98,32 +114,54 @@
 (define (skip x)
   (string-concatenate (map serialize-markdown (cdr x))))
 
+(define (md-string s)
+  (cork->utf8 s))
+
+(define (adjust-width s cols prefix first-prefix)
+  (if (not paragraph-width)  ; set paragraph-width to #f to disable adjustment
+      (md-string (string-append prefix s))
+      (let* ((l (map md-string (string-split s #\ )))
+             (c (string-length prefix))
+             (line-len 0)
+             (proc (lambda (w acc)
+                     (set! line-len (+ line-len (string-length w) 1))
+                     (if (> line-len cols)
+                         (begin
+                           (set! line-len (+ c (string-length w)))
+                           (string-append acc "\n" prefix w " "))
+                         (string-append acc w " ")))))
+        (string-trim-right (list-fold proc first-prefix l)))))
+
+(define (md-paragraph p)
+  (line-breaks-after 
+   (cond ((string? p)
+          ;; FIXME: arguments of Hugo shortcodes shouldn't be split
+          (adjust-width p paragraph-width indent (first-indent)))
+         ((func? p 'concat)
+          (adjust-width (serialize-markdown p) paragraph-width indent
+                        (first-indent)))
+         (else 
+          (serialize-markdown p)))))
+
 (define (md-document x)
-  (string-concatenate
-   (map line-breaks-after
-        (map serialize-markdown (cdr x)))))
+  (string-concatenate (map md-paragraph (cdr x))))
 
 (define (md-concat x)
-  (apply string-append 
-         (map serialize-markdown (cdr x))))
-
-(define (prefix-header n)
-  (if (== 1 n)
-      "#"
-      (string-append "#" (prefix-header (- n 1)))))
+  (string-concatenate (map serialize-markdown (cdr x))))
 
 (define (line-breaks-after s)
   (string-concatenate `(,s ,@(make-list num-line-breaks "\n"))))
 
 (define (md-header n)
   (lambda (x)
-    (with res (apply string-append 
-                     `(,(prefix-header n)
-                         " "
-                         ,@(map serialize-markdown (cdr x))))
-      (if (<= n 4)
-          (line-breaks-after res)
-          (string-append res " ")))))
+    (with-global num-line-breaks 0
+      (with res (string-concatenate
+                 `(,@(make-list n "#")
+                   " "
+                   ,@(map serialize-markdown (cdr x))))
+            (if (<= n 4)  ; Special handling of TeXmacs <paragraph>
+                (line-breaks-after res)
+                (string-append res " "))))))
 
 (define (math->latex t)
  "Converts the TeXmacs tree @t into internal LaTeX representation"
@@ -136,18 +174,20 @@
  (texmacs->latex t options)))
 
 (define (md-environment x)
-  (string-append 
-   (md-style 
-    `(strong 
-      ,(translate 
-        (string-capitalize (symbol->string (car x))))))
-   ": "
-   (string-concatenate (map serialize-markdown (cdr x)))))
+  (set! environment-nr (+ 1 environment-nr))
+  (set! label-nr (+ 1 label-nr))
+  (let* ((txt (translate (string-capitalize (symbol->string (car x)))))
+         (nr (number->string environment-nr))
+         (tag `(strong ,(string-append txt " " nr ":")))
+         (content (cdadr x)))
+    (serialize-markdown 
+     `(document (concat ,tag " " ,(car content)) ,@(cdr content)))))
 
 (define (md-math* t)
   (replace-fun-list t
    `((mathbbm . mathbb)
      ((_) . "\\_")
+     (,(cut func? <> 'ensuremath) . ,cadr)
      (,(cut func? <> '!sub) . 
        ,(lambda (x) (cons "\\_" (cdr x))))
      (,(cut func? <> 'label) .   ; append tags to labels
@@ -157,39 +197,59 @@
             (ahash-set! labels (cadr x) label-name)
             (list '!concat x `(tag ,label-name))))))))
 
-(define (md-math t)
- "Takes a tree @t, and returns a valid MathJax-compatible LaTeX string"
- (with ltx (math->latex t)
+(define (md-math x)
+ "Takes an stree @x, and returns a valid MathJax-compatible LaTeX string"
+ (with ltx (math->latex x)
    (serialize-latex (md-math* ltx))))
+
+(define (md-equation x)
+  ;; HACK
+  (let*  ((s (md-math x))
+          (left (string-replace s "\\[" "\\\\["))
+          (right (string-replace left "\\]" "\\\\]")))
+    right))
 
 (define (md-eqref x)
   (let* ((label (cadr x))
-         (err-msg (string-append "undefined label " label))
+         (err-msg (string-append "undefined label: '" label "'"))
          (label-name (ahash-ref labels label err-msg)))
     (string-append "(" label-name ")")))
 
+(define (md-label x)
+  (let ((label-name (number->string label-nr))
+        (label (cadr x)))
+    (if (not (ahash-ref labels label))
+        (begin (ahash-set! labels label label-name) "")
+        (begin (string-append "duplicate label: '" label "'")))))
+
+(define (md-reference x)
+  (let* ((label (cadr x))
+         (err-msg (string-append "undefined label: '" label "'"))
+         (label-name (ahash-ref labels label err-msg)))
+    label-name))
+
+(define (md-item? x)
+  (and (list>0? x) (func? x 'concat) (== (cadr x) '(item))))
+
 (define (md-list x)
   (let* ((c (cond ((== (car x) 'itemize) "* ")
-                ((== (car x) 'enumerate) "1. ")
-                ((== (car x) 'enumerate-alpha) "a. ")
-                (else "* ")))
+                  ((== (car x) 'enumerate) "1. ")
+                  ((== (car x) 'enumerate-alpha) "a. ")
+                  (else "* ")))
+         (cs (string-concatenate (make-list (string-length c) " ")))
          (transform
           (lambda (a)
-            (if (and (list>0? a)
-                     (== (car a) 'concat)
-                     (== (cadr a) '(item)))
-                `(concat ,c ,@(cddr a))
-                `(concat "  " ,a)))))
+            (if (md-item? a) `(concat ,c ,@(cddr a)) a))))
     (with doc (cAr x)
-      (serialize-markdown 
-       `(document ,@(map transform (cdr doc)))))))
+      (with-global num-line-breaks 1
+        (with-global indent (indent-increment cs)
+          (with-global first-indent (indent-decrement (string-length c))
+            (serialize-markdown `(document ,@(map transform (cdr doc))))))))))
 
 (define (md-quotation x)
-  (let ((add-prefix (lambda (a) `(concat "> " ,a)))
-        (doc (cAr x)))
-    (with-global num-line-breaks 1
-      (serialize-markdown
-        `(document ,@(map add-prefix (cdr doc)))))))
+  (with-global num-line-breaks 1
+    (with-global indent (indent-increment "> ")
+      (serialize-markdown (cAr x)))))
 
 (define (style-text style)
  (cond ((== style 'strong) "**")
@@ -216,7 +276,7 @@
 
 (define (md-hlink x)
   (with payload (cdr x)
-    (string-append "[" (serialize-markdown payload) "]"
+    (string-append "[" (serialize-markdown (car payload)) "]"
                    "(" (cadr payload) ")")))    
 
 (define (md-figure x)
@@ -232,11 +292,13 @@
 (define (md-footnote x)
   ; Input: (footnote (document [stuff here]))
   (set! footnote-nr (+ 1 footnote-nr))
-  (postlude-add (cdr x))
-  (string-append "[^" (number->string footnote-nr) "]"))
+  (with-global num-line-breaks 0
+    (with-global paragraph-width #f
+      (postlude-add (cdr x))
+      (string-append "[^" (number->string footnote-nr) "]"))))
 
 (define (md-doc-title x)
-  (set! doc-title (serialize-markdown (cdr x)))
+  (set! doc-title (md-string (serialize-markdown (cdr x))))
   (if (hugo-extensions?) ""
       ((md-header 1) (cdr x))))
 
@@ -259,14 +321,18 @@
            (list 'block md-block)
            (list 'document md-document)
            (list 'quotation md-quotation)
+           (list 'definition md-environment)
+           (list 'conjecture md-environment)
+           (list 'algorithm md-environment)
+           (list 'problem md-environment)           
            (list 'theorem md-environment)
            (list 'proposition md-environment)
            (list 'corollary md-environment)
            (list 'lemma md-environment)
            (list 'proof md-environment)
            (list 'math md-math)
-           (list 'equation md-math)
-           (list 'equation* md-math)
+           (list 'equation md-equation)
+           (list 'equation* md-equation)
            (list 'concat md-concat)
            (list 'itemize md-list)
            (list 'enumerate md-list)
@@ -280,6 +346,8 @@
            (list 'cite md-cite)
            (list 'cite-detail md-cite-detail)
            (list 'eqref md-eqref)
+           (list 'label md-label)
+           (list 'reference md-reference)
            (list 'footnote md-footnote)
            (list 'figure md-figure)
            (list 'hlink md-hlink)))
@@ -290,7 +358,7 @@
 
 (tm-define (serialize-markdown x)
   (cond ((null? x) "")
-        ((string? x) (cork->utf8 x))
+        ((string? x) x)
         ((symbol? x) 
          (display* "Ignoring symbol " x "\n")
          "")
@@ -310,10 +378,15 @@
 (tm-define (serialize-markdown-document x)
   (with-global labels (make-ahash-table)
     (with-global footnote-nr 0
-      (with-global equation-nr 0
-        (with-global authors '()
-          (with-global postlude ""
-            (with body (serialize-markdown x)
-              (string-append (prelude)
-                             body
-                             postlude))))))))
+      (with-global label-nr 0
+        (with-global environment-nr 0                             
+          (with-global equation-nr 0
+            (with-global authors '()
+              (with-global postlude ""
+                (with-global paragraph-width
+                             (get-preference
+                              "texmacs->markdown:paragraph-width")
+                  (with body (serialize-markdown x)
+                    (string-append (prelude)
+                                 body
+                                 postlude)))))))))))
