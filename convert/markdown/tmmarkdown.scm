@@ -36,9 +36,16 @@
 
 (define (skip x)
   "Recursively processes @x and drops its func."
+  (display* "Skipped " (car x) "\n")
   (map texmacs->markdown* (cdr x)))
 
+(define (skip-but-last x)
+  "Process only the last child of @x."
+  (display* "Skipped all but last " (cDr x) "\n")
+  (list (texmacs->markdown* (cAr x))))
+
 (define (drop x)
+  (display* "Dropped " (car x) " !\n")
   '())
 
 (define (parse-big-figure x)
@@ -65,10 +72,10 @@
         ((and (== "mode" (tm-ref x 0))
               (== "prog" (tm-ref x 1)))
          `(tt ,(parse-with (cons 'with (cdddr x)))))
-        (else (skip x))))
+        (else (skip-but-last x))))
 
 ; TO-DO
-(define (process-bibliography x)
+(define (parse-bibliography x)
   ; Input:
   ; (bibliography "bib-name" "bib-type" "bib-file" 
   ;   (doc (bib-list "n" (doc (concat 1...) (concat 2... ) ... (concat n...)))))
@@ -81,7 +88,6 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Dispatch
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
 
 (define conversion-hash (make-ahash-table))
 (map (lambda (l) (apply (cut ahash-set! conversion-hash <> <>) l)) 
@@ -108,6 +114,10 @@
            (list 'author-email drop)
            (list 'document keep)
            (list 'quotation keep)
+           (list 'definition keep)
+           (list 'conjecture keep)
+           (list 'algorithm keep)
+           (list 'problem keep)
            (list 'theorem keep)
            (list 'proposition keep)
            (list 'corollary keep)
@@ -119,8 +129,11 @@
            (list 'concat keep)
            (list 'doc-title keep)
            (list 'section (change-to 'h2))
+           (list 'section* (change-to 'h2))           
            (list 'subsection (change-to 'h3))
+           (list 'subsection* (change-to 'h3))
            (list 'subsubsection (change-to 'h4))
+           (list 'subsubsection* (change-to 'h4))
            (list 'paragraph (change-to 'strong))
            (list 'subparagraph (change-to 'strong))
            (list 'with parse-with)
@@ -138,22 +151,23 @@
            (list 'cite-detail keep)
            (list 'hlink keep)
            (list 'eqref keep)
+           (list 'label keep)
+           (list 'reference keep)
            (list 'big-figure parse-big-figure)
            (list 'footnote keep)
-           (list 'bibliography process-bibliography)))
+           (list 'bibliography drop)
+           (list 'hide-preamble drop)
+           ))
 
 (define (texmacs->markdown* x)
   (cond ((not (list>0? x)) x)
         ((symbol? (car x))
-         (with fun 
-              (ahash-ref conversion-hash (car x))
-            (if (!= fun #f)
-                (fun x)
-                (begin
-                  (display* "Skipped " (car x) "\n")
-                  (skip x)))))
-        (else
-         (cons (texmacs->markdown* (car x)) (texmacs->markdown* (cdr x))))))
+         (with fun (ahash-ref conversion-hash (car x))
+           (if (!= fun #f)
+               (fun x)
+               (skip x))))
+        (else (cons (texmacs->markdown* (car x))
+                    (texmacs->markdown* (cdr x))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Public interface
@@ -161,5 +175,5 @@
 
 (tm-define (texmacs->markdown x)
   (if (is-file? x)
-      (texmacs->markdown* (car (select x '(body))))
+      (texmacs->markdown* (car (select x '(body document))))
       (texmacs->markdown* x)))
