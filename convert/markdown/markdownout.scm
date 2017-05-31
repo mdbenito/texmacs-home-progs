@@ -30,6 +30,7 @@
 (define labels '())
 (define indent "")
 (define (first-indent) indent)
+(define file? #f)
 
 (define (hugo-extensions?)
   (== (get-preference "texmacs->markdown:hugo-extensions") "on"))
@@ -38,12 +39,17 @@
 ;; Helper routines
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(define tm-encoding->md-encoding
+  (if file? cork->utf8 identity))
+
+(define md-encoding->tm-encoding
+  (if file? utf8->cork identity))
+
 (define (indent-increment s)
   (string-append indent s))
 
 (define (author-add x)
   (set! authors (append authors (cdr x)))
-  (display* authors)
   "")
 
 (define (indent-decrement n)
@@ -115,7 +121,7 @@
   (string-concatenate (map serialize-markdown (cdr x))))
 
 (define (md-string s)
-  (cork->utf8 s))
+  (tm-encoding->md-encoding s))
 
 (define (adjust-width s cols prefix first-prefix)
   (if (not paragraph-width)  ; set paragraph-width to #f to disable adjustment
@@ -254,7 +260,7 @@
 (define (style-text style)
  (cond ((== style 'strong) "**")
        ((== style 'em) "*")
-       ((== style 'tt) "`")
+       ((== style 'tt) (md-encoding->tm-encoding "`"))
        ((== style 'strike) "~~")
        (else "")))
 
@@ -368,25 +374,25 @@
             (if (!= fun #f)
                 (fun x)
                 (begin
-                  (display* "Skipped " (car x) "\n")
+                  (display* "Serialize skipped " (car x) "\n")
                   (skip x)))))
         (else
-         (apply string-append 
-                (cons (serialize-markdown (car x))
-                      (map serialize-markdown (cdr x)))))))
+         (string-concatenate
+                (map serialize-markdown x)))))
 
 (tm-define (serialize-markdown-document x)
-  (with-global labels (make-ahash-table)
-    (with-global footnote-nr 0
-      (with-global label-nr 0
-        (with-global environment-nr 0                             
-          (with-global equation-nr 0
-            (with-global authors '()
-              (with-global postlude ""
-                (with-global paragraph-width
-                             (get-preference
-                              "texmacs->markdown:paragraph-width")
-                  (with body (serialize-markdown x)
-                    (string-append (prelude)
-                                 body
-                                 postlude)))))))))))
+  (with-global file? #t
+    (with-global labels (make-ahash-table)
+      (with-global footnote-nr 0
+        (with-global label-nr 0
+          (with-global environment-nr 0                             
+            (with-global equation-nr 0
+              (with-global authors '()
+                           (with-global postlude ""
+                             (with-global paragraph-width
+                                 (get-preference
+                                  "texmacs->markdown:paragraph-width")
+                               (with body (serialize-markdown x)
+                                 (string-append (prelude)
+                                                body
+                                                postlude))))))))))))
