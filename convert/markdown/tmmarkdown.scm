@@ -34,6 +34,10 @@
   (lambda (x)
     (cons func (map texmacs->markdown* (cdr x)))))
 
+(define (hrule-hack x)
+  ; FIXME: this breaks inside quotations and whatnot. And it's ugly.
+  '(document "" "---" ""))
+
 (define (skip x)
   "Recursively processes @x and drops its func."
   (display* "Skipped " (car x) "\n")
@@ -52,8 +56,14 @@
   ; Example input:
   ; (big-figure (image "path-to.jpeg" "251px" "251px" "" "") 
   ;             (document "caption"))
-  (let* ((img (tm-ref x 0))
-         (caption (texmacs->markdown* (tm-ref x 1)))
+  ; Or, when the "Figure num." in the figure is removed:
+  ; (render-big-figure "" "Figure text" (image ...) (document "caption"))
+  ;
+  ; FIXME: We need to ignore the text until we write a Hugo shortcode
+  ; implementing Figure text as TeXmacs.
+  (let* ((offset (if (func? x 'big-figure) 0 2))
+         (img (tm-ref x offset))
+         (caption (texmacs->markdown* (tm-ref x (+ 1 offset))))
          (src (if (tm-is? img 'image) 
                   (tm-ref img 0)
                   '(document "Wrong image src"))))
@@ -95,6 +105,7 @@
            (list 'dfn (change-to 'strong))
            (list 'em keep)
            (list 'strike-through (change-to 'strike)) ; non-standard extension
+           (list 'hrule hrule-hack)
            (list 'samp (change-to 'tt))
            (list 'python (change-to 'tt))
            (list 'cpp (change-to 'tt))
@@ -104,6 +115,7 @@
            (list 'shell (change-to 'tt))
            (list 'verbatim (change-to 'tt))
            (list 'verbatim-code (code-block ""))
+           (list 'code (code-block ""))
            (list 'scm-code (code-block "scheme"))
            (list 'cpp-code (code-block "c++"))
            (list 'mmx-code (code-block "mmx"))
@@ -154,6 +166,7 @@
            (list 'label keep)
            (list 'reference keep)
            (list 'big-figure parse-big-figure)
+           (list 'render-big-figure parse-big-figure)
            (list 'footnote keep)
            (list 'bibliography drop)
            (list 'hide-preamble drop)
