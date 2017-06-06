@@ -46,10 +46,10 @@
 ; conversion before sending us the stree, because weird chars appear.
 ; However if we don't do any conversion here, the copied text is still wrong
 (define (tm-encoding->md-encoding x)
-  (if file? (cork->utf8 x) x))
+  (if file? (string-convert x "Cork" "UTF-8") x))
 
-(define (md-encoding->tm-encoding)
-  (if file? (utf8->cork x) x))
+(define (md-encoding->tm-encoding x)
+  (if file? (string-convert x "UTF-8" "Cork") x))
 
 (define (list->csv l)
   (string-join (map (cut string-append "\"" <> "\"") l) ", "))
@@ -137,7 +137,7 @@
 (define (adjust-width s cols prefix first-prefix)
   (if (not paragraph-width)  ; set paragraph-width to #f to disable adjustment
       (md-string (string-append prefix s))
-      (let* ((l (map md-string (string-split s #\ )))
+      (let* ((l (map md-string (string-split s #\ ))) ;split words
              (c (string-length prefix))
              (line-len 0)
              (proc (lambda (w acc)
@@ -149,19 +149,26 @@
                          (string-append acc w " ")))))
         (string-trim-right (list-fold proc first-prefix l)))))
 
+(define (md-must-adjust? t)
+  (and (list>1? t)
+       (in? (car t)
+            '(strong em tt strike math concat cite cite-detail 
+                     eqref reference figure hlink))))
+
 (define (md-paragraph p)
-  (line-breaks-after 
-   (cond ((string? p)
-          ;; FIXME: arguments of Hugo shortcodes shouldn't be split
-          (adjust-width p paragraph-width indent (first-indent)))
-         ((func? p 'concat)
-          (adjust-width (serialize-markdown p) paragraph-width indent
-                        (first-indent)))
-         (else 
-          (serialize-markdown p)))))
+  (cond ((string? p)
+         ;; FIXME: arguments of Hugo shortcodes shouldn't be split
+         (adjust-width p paragraph-width indent (first-indent)))
+        ((md-must-adjust? p)
+         (adjust-width (serialize-markdown p) paragraph-width indent
+                       (first-indent)))
+        (else ;; do not convert to prevent nested conversions
+          (serialize-markdown p))))
 
 (define (md-document x)
-  (string-concatenate (map md-paragraph (cdr x))))
+  (string-concatenate
+   (list-intersperse (map md-paragraph (cdr x))
+                     (string-concatenate (make-list num-line-breaks "\n")))))
 
 (define (md-concat x)
   (string-concatenate (map serialize-markdown (cdr x))))
@@ -176,9 +183,9 @@
                  `(,@(make-list n "#")
                    " "
                    ,@(map serialize-markdown (cdr x))))
-            (if (<= n 4)  ; Special handling of TeXmacs <paragraph>
-                (line-breaks-after res)
-                (string-append res " "))))))
+            (if (> n 4)  ; Special handling of TeXmacs <paragraph>
+                (string-append res " ")
+                res)))))
 
 (define (math->latex t)
  "Converts the TeXmacs tree @t into internal LaTeX representation"
@@ -200,10 +207,36 @@
     (serialize-markdown 
      `(document (concat ,tag " " ,(car content)) ,@(cdr content)))))
 
+(define (md-environment* x)
+  (let* ((s (string-drop-right (symbol->string (car x)) 1))
+         (txt (translate (string-capitalize s)))
+         (tag `(strong ,(string-append txt ":")))
+         (content (cdadr x)))
+    (serialize-markdown 
+     `(document (concat ,tag " " ,(car content)) ,@(cdr content)))))
+
+(define (md-fix-math-row t)
+  "Append backslashes to last item in a !row"
+  (if (and (func? t '!row) (list>1? t))
+      (with cols (cdr t)
+        `(!row ,@(cDr cols) (!concat ,(cAr cols) "\\\\\\\\")))
+      t))
+
+(define (md-fix-math-table t)
+  "Append extra backslashes at the end of !rows in LaTeX tables"
+  (if (not (list>1? (cdr t))) t  ; Nothing to do with only one row
+      (let* ((rows (cdr t))
+             (last-row (cAr rows))
+             (first-rows (cDr rows)))
+        `(!table ,@(map md-fix-math-row first-rows) ,last-row))))
+
 (define (md-math* t)
   (replace-fun-list t
    `((mathbbm . mathbb)
      ((_) . "\\_")
+     ((left\{) . (left\\{))
+     ((right\{) . (right\\{))
+     (,(cut func? <> '!table) . ,md-fix-math-table)
      (,(cut func? <> 'ensuremath) . ,cadr)
      (,(cut func? <> '!sub) . 
        ,(lambda (x) (cons "\\_" (cdr x))))
@@ -214,17 +247,22 @@
             (ahash-set! labels (cadr x) label-name)
             (list '!concat x `(tag ,label-name))))))))
 
-(define (md-math x)
+(define (md-math x . leave-newlines?)
  "Takes an stree @x, and returns a valid MathJax-compatible LaTeX string"
  (with ltx (math->latex x)
-   (serialize-latex (md-math* ltx))))
+   (if (null? leave-newlines?)
+       (string-replace (serialize-latex (md-math* ltx)) "\n" " ")
+       (serialize-latex (md-math* ltx)))))
 
 (define (md-equation x)
   ;; HACK
-  (let*  ((s (md-math x))
-          (left (string-replace s "\\[" "\\\\["))
-          (right (string-replace left "\\]" "\\\\]")))
-    right))
+  (let*  ((s (md-math x #t))
+          (s1 (string-replace s "\\[" "\\\\["))
+          (s2 (string-replace s1 "\\]" "\\\\]"))
+          (lines (string-split s2 #\newline)))
+    (with-global num-line-breaks 1
+      (serialize-markdown
+       `(document ,@lines)))))
 
 (define (md-eqref x)
   (let* ((label (cadr x))
@@ -310,9 +348,10 @@
   ; Input: (footnote (document [stuff here]))
   (set! footnote-nr (+ 1 footnote-nr))
   (with-global num-line-breaks 0
-    (with-global paragraph-width #f
-      (postlude-add (cdr x))
-      (string-append "[^" (number->string footnote-nr) "]"))))
+    (with-global indent ""
+      (with-global paragraph-width #f
+        (postlude-add (cdr x))
+        (string-append "[^" (number->string footnote-nr) "]")))))
 
 (define (md-doc-title x)
   (set! doc-title (md-string (serialize-markdown (cdr x))))
@@ -323,7 +362,7 @@
   (with-global num-line-breaks 1
     (with syntax (tm-ref x 0)
       (string-concatenate 
-       `("```" ,syntax "\n" ,@(map serialize-markdown (cdr x)) "```\n")))))
+       `("```" ,syntax "\n" ,@(map serialize-markdown (cddr x)) "```\n")))))
 
 (define (md-hugo-tags x)
   (if (hugo-extensions?)
@@ -350,13 +389,23 @@
            (list 'document md-document)
            (list 'quotation md-quotation)
            (list 'definition md-environment)
+           (list 'definition* md-environment*)           
            (list 'conjecture md-environment)
+           (list 'conjecture* md-environment*)           
+           (list 'question md-environment)
+           (list 'question* md-environment*)           
            (list 'algorithm md-environment)
-           (list 'problem md-environment)           
+           (list 'algorithm* md-environment*)           
+           (list 'problem md-environment)
+           (list 'problem* md-environment*)           
            (list 'theorem md-environment)
+           (list 'theorem* md-environment*)           
            (list 'proposition md-environment)
+           (list 'proposition* md-environment*)           
            (list 'corollary md-environment)
+           (list 'corollary* md-environment*)           
            (list 'lemma md-environment)
+           (list 'lemma* md-environment*)           
            (list 'proof md-environment)
            (list 'math md-math)
            (list 'equation md-equation)
@@ -408,19 +457,20 @@
 
 (tm-define (serialize-markdown-document x)
   (with-global file? #t
-    (with-global labels (make-ahash-table)
-      (with-global footnote-nr 0
-        (with-global label-nr 0
-          (with-global environment-nr 0                             
-            (with-global equation-nr 0
-              (with-global paper-authors '()
-                (with-global post-tags '()
-                  (with-global post-author ""
-                    (with-global postlude ""
-                      (with-global paragraph-width
-                                   (get-preference
-                                    "texmacs->markdown:paragraph-width")
-                        (with body (serialize-markdown x)
-                          (string-append (prelude)
-                                         body
-                                         postlude))))))))))))))
+    (with-global num-line-breaks 2
+      (with-global labels (make-ahash-table)
+        (with-global footnote-nr 0
+          (with-global label-nr 0
+            (with-global environment-nr 0                             
+              (with-global equation-nr 0
+                (with-global paper-authors '()
+                  (with-global post-tags '()
+                    (with-global post-author ""
+                      (with-global postlude ""
+                        (with-global paragraph-width
+                            (get-preference
+                             "texmacs->markdown:paragraph-width")
+                          (with body (serialize-markdown x)
+                            (string-append (prelude)
+                                           body
+                                           postlude)))))))))))))))
