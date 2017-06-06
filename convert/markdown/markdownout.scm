@@ -24,7 +24,9 @@
 (define environment-nr 0)  ; global counter for numbered environments
 (define num-line-breaks 2)
 (define paragraph-width #f)
-(define authors '())
+(define paper-authors '())
+(define post-tags '())
+(define post-author "")
 (define doc-title "")
 (define postlude "")
 (define labels '())
@@ -39,17 +41,28 @@
 ;; Helper routines
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(define tm-encoding->md-encoding
-  (if file? cork->utf8 identity))
+;; FIXME: does this make sense? We only convert if exporting to file.
+; The idea is that ""Copy to markdown" might already perform some internal
+; conversion before sending us the stree, because weird chars appear.
+; However if we don't do any conversion here, the copied text is still wrong
+(define (tm-encoding->md-encoding x)
+  (if file? (cork->utf8 x) x))
 
-(define md-encoding->tm-encoding
-  (if file? utf8->cork identity))
+(define (md-encoding->tm-encoding)
+  (if file? (utf8->cork x) x))
+
+(define (list->csv l)
+  (string-join (map (cut string-append "\"" <> "\"") l) ", "))
 
 (define (indent-increment s)
   (string-append indent s))
 
 (define (author-add x)
-  (set! authors (append authors (cdr x)))
+  (set! paper-authors (append paper-authors (cdr x)))
+  "")
+
+(define (md-doc-running-author x)
+  (set! post-author (cadr x))
   "")
 
 (define (indent-decrement n)
@@ -61,18 +74,16 @@
 (define (prelude)
   "Output Hugo frontmatter"
   (if (not (hugo-extensions?)) ""
-      (let ((authors* (string-join
-                       (map (cut string-append "\"" <> "\"") authors)
-                       ", "))
-            (first-author (if (list>0? authors) (car authors) ""))
+      (let ((paper-authors* (list->csv paper-authors))
+            (post-tags* (list->csv post-tags))
             (date (strftime "%Y-%m-%d"(localtime (current-time)))))
         (string-append "---\n\n"
                        "title: \"" doc-title "\"\n"
-                       "author: \"" first-author "\"\n"
-                       "authors: [" authors* "]\n"
+                       "author: \"" post-author "\"\n"
+                       "authors: [\"" post-author "\"]\n"
                        "date: \"" date "\"\n"
-                       "tags: [\"\"]\n"
-                       "paper_authors: [\"\", \"\"]\n"
+                       "tags: [" post-tags* "]\n"
+                       "paper_authors: [" paper-authors* "]\n"
                        "paper_key: \"\"\n\n"
                        "---\n\n"))))
 
@@ -314,6 +325,17 @@
       (string-concatenate 
        `("```" ,syntax "\n" ,@(map serialize-markdown (cdr x)) "```\n")))))
 
+(define (md-hugo-tags x)
+  (if (hugo-extensions?)
+      (begin (set! post-tags (cdr x)) "")
+      (string-append "Tags: " (list->csv (cdr x)))))
+
+(define (md-hugo-shortcode x)
+  (if (hugo-extensions?)
+      (string-concatenate 
+       `("{{< " ,(cadr x) " " ,@(list-intersperse (cddr x) " ") " >}}"))
+      ""))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; dispatch
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -348,6 +370,7 @@
            (list 'h3 (md-header 3))
            (list 'h4 (md-header 4))
            (list 'doc-title md-doc-title)
+           (list 'doc-running-author md-doc-running-author)
            (list 'author-name author-add)
            (list 'cite md-cite)
            (list 'cite-detail md-cite-detail)
@@ -356,7 +379,10 @@
            (list 'reference md-reference)
            (list 'footnote md-footnote)
            (list 'figure md-figure)
-           (list 'hlink md-hlink)))
+           (list 'hlink md-hlink)
+           (list 'tags md-hugo-tags)  ; Hugo extension
+           (list 'hugo md-hugo-shortcode)  ; Hugo extension
+           ))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Public interface
@@ -387,12 +413,14 @@
         (with-global label-nr 0
           (with-global environment-nr 0                             
             (with-global equation-nr 0
-              (with-global authors '()
-                           (with-global postlude ""
-                             (with-global paragraph-width
-                                 (get-preference
-                                  "texmacs->markdown:paragraph-width")
-                               (with body (serialize-markdown x)
-                                 (string-append (prelude)
-                                                body
-                                                postlude))))))))))))
+              (with-global paper-authors '()
+                (with-global post-tags '()
+                  (with-global post-author ""
+                    (with-global postlude ""
+                      (with-global paragraph-width
+                                   (get-preference
+                                    "texmacs->markdown:paragraph-width")
+                        (with body (serialize-markdown x)
+                          (string-append (prelude)
+                                         body
+                                         postlude))))))))))))))
