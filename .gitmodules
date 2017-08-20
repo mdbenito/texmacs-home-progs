@@ -1,0 +1,3 @@
+[submodule "convert/tm2md"]
+	path = convert/tm2md
+	url = git@bitbucket.org:mdbenito/tm2md
