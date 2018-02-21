@@ -16,7 +16,13 @@ In no particular order:
 
 ## Set up ##
 
-Just link your `~/.TeXmacs/progs` to this project's folder.
+Clone into submodules (e.g. [tm2md](https://bitbucket.org/mdbenito/tm2md)) upon first cloning with
+
+```
+git submodule update --init --recursive
+```
+
+Then just link your `~/.TeXmacs/progs` to this project's folder.
 
 ## License ##
 
