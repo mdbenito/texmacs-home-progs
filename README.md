@@ -22,6 +22,11 @@ Clone into submodules (e.g. [tm2md](https://bitbucket.org/mdbenito/tm2md)) upon 
 git submodule update --init --recursive
 ```
 
+For tm2md create a symbolic link to it named markdown:
+```
+ln -s convert/tm2md convert/markdown
+```
+
 Then just link your `~/.TeXmacs/progs` to this project's folder.
 
 ## License ##
