@@ -15,6 +15,10 @@
 (define (build-kbd-maps)
   `(kbd-map
     (:mode in-math?)
+    ; rev 11681 changed the default behaviour for two caps typed in math:
+    ; "A A" is <bbb-A> only in-math-non-hybrid? see math-kbd.scm
+    ; So we just enforce it here again.
+    ,@(map (cut build-one-kbd-map "bbb" 2 <>) keys)
     ,@(map (cut build-one-kbd-map "cal" 3 <>) keys)
     ,@(map (cut build-one-kbd-map "frak" 4 <>) keys)))
 
