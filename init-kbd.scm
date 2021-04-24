@@ -24,20 +24,6 @@
 
 (eval (build-kbd-maps))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Workarounds.
-;; Problems with the Qt input method break shortcuts involving tildes, etc.
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(kbd-map
-  (:require (and (in-math?) (selection-active-any?)))
-  ("~" (make-wide "~"))
-  ("^" (make-wide "^")))
-
-(kbd-map
- (:mode in-math?)
- ("= - tab" (insert "<simeq>")))
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Shortcuts
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -75,8 +61,14 @@
  ("M-A-i" (make-session "scheme" "default"))
  ("M-A-p" (make-session "python" "default"))
  ("M-A-t" (toggle-visible-header))
- ("macos A-right" (cursor-history-forward))
- ("macos A-left" (cursor-history-backward))
+ ("M-A-right" (cursor-history-forward))
+ ("M-A-left" (cursor-history-backward))
+ ("C-left" (traverse-left))
+ ("C-right" (traverse-right))
+ ("C-up" (traverse-up))
+ ("C-down" (traverse-down))
+ ("C-home" (traverse-first))
+ ("C-end" (traverse-last))
  ("C-A-left" (structured-exit-left))
  ("C-A-right" (structured-exit-right))
  ("S-M-up" (buffer-set-part-mode :preamble))
@@ -84,7 +76,7 @@
 
 (kbd-map
   (:mode in-session?)
-  ("macos return" (session-split)))
+  ("M-return" (session-split)))
 
 (kbd-map
   (:mode in-text?)
