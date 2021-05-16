@@ -1,5 +1,5 @@
-(use-modules (dynamic session-edit)
-             (convert markdown init-markdown))
+(use-modules (dynamic session-edit))
+
 (set-session-multiline-input "python" "default" #t)
 (set-session-multiline-input "scheme" "default" #t)
 
