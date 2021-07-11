@@ -120,8 +120,8 @@
 
 ; Don't jump around the slides while in presentation mode:
 ; (won't work: requires loading of beamer stuff first!!)
+(import-from (dynamic fold-kbd))
 (kbd-map
-  (:require (and (full-screen?) (style-has? "beamer")))
-  ("F8" (noop))
+  (:require (and (full-screen?) (in-screens?)))
   ("F9" (noop))
   ("F12" (noop)))
