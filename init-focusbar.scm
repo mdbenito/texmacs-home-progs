@@ -40,21 +40,21 @@
 
 (define-group todo-tag todo fixme askme)
 (define-group variant-tag (todo-tag))
-(define-group can-jump-tags (todo-tag) (figure-tag))
+(define-group can-jump-tags (todo-tag)) ;(figure-tag)
 
 (tm-define (focus-tag-name l) (:require (in? l '(todo))) "To do")
 (tm-define (focus-tag-name l) (:require (in? l '(fixme))) "Fix me")
 (tm-define (focus-tag-name l) (:require (in? l '(askme))) "Ask me")
 
 (tm-menu (focus-tag-extra-icons t)
-  (:require (tree-in? t (group-resolve 'can-jump-tags)))
+  (:require (tree-in? t (can-jump-tags-list)))
   (mini #t
     (group "Jump to:")
     (=> (balloon (eval (focus-tag-string t)) "Click to jump")
         (dynamic (focus-taglist-menu (tree-label t))))))
 
 (tm-menu (focus-tag-menu t)
-  (:require (tree-in? t (group-resolve 'can-jump-tags)))
+  (:require (tree-in? t (can-jump-tags-list)))
   (=> "Jump to…"
       (dynamic (focus-taglist-menu (tree-label t)))))
 
@@ -82,7 +82,7 @@
     ("Other" (interactive replace-other-label))))
 
 (tm-menu (focus-hidden-icons t)
-  (:require (tree-in? t '(reference eqref)))
+  (:require (tree-in? t '(reference-tag-list)))
   (with cur (focus-tag-string t)
     (mini #t
       (group "Id:")
@@ -92,15 +92,9 @@
           (link focus-label-menu)))))
 
 (tm-menu (focus-tag-menu t)
-  (:require (tree-in? t '(reference eqref)))
+  (:require (tree-in? t '(reference-tag-list)))
   (=> "Insert label..."
       (link focus-label-menu)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Variants for citations
-
-(define-group cite-tag cite nocite)
-(define-group variant-tag (cite-tag))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Focus bar icons and menus for citations
@@ -147,7 +141,7 @@
     (dynamic (string-input-icon t 1))))
 
 (tm-menu (focus-tag-menu t)
-  (:require (tree-in? t '(cite nocite cite-detail)))
+  (:require (tree-in? t (citation-tag-list)))
   (for (pos (.. 0 (tree-arity t)))
     (dynamic (focus-citations-menu pos))))
 
