@@ -76,9 +76,8 @@
 
 (kbd-map
   (:mode in-math?)
-  ("+ + +" (make-script #t #t) (insert "<ast>") (go-right) (key-press "enter"))
-  ("i e tab" (insert '(big-around "<int>" " d E")))
-  ("i e x tab" (insert '(big-around "<int>" (concat " d E" (rsub "x"))))))
+  ("i e tab" (insert '(big-around "<int>" (concat "<mathd>" "E"))))
+  ("i e x tab" (insert '(big-around "<int>" (concat "<mathd>" "E" (rsub "x"))))))
 
 (kbd-map
   ("S c h tab" (make 'schnitt)))
