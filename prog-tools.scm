@@ -17,6 +17,7 @@
 (tm-define (prog-to-prefix) "??")
 (tm-define (prog-to-prefix) (:mode in-cpp?) "//")
 (tm-define (prog-to-prefix) (:mode in-scilab?) "//")
+(tm-define (prog-to-prefix) (:mode in-mathemagix?) "//")
 (tm-define (prog-to-prefix) (:mode in-fortran?) "!")
 (tm-define (prog-to-prefix) (:mode in-python?) "#")
 (tm-define (prog-to-prefix) (:mode in-scheme?) ";")
