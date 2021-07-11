@@ -190,3 +190,9 @@
   ("C-right" (traverse-right))
   ("C-up" (program-move :up))
   ("C-down" (program-move :down)))
+
+; FIXME: this doesn't really work
+(tm-define (kbd-variant t forwards?)
+  (:mode in-prog-scheme?)
+  (:require (string-null? (cursor-word)))
+  (program-indent (not forwards?)))
