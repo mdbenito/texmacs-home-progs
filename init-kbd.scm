@@ -42,7 +42,7 @@
   ("_ | tab" (insert "<rfloor>"))
   ("g r s" (make 'grs)) ; requires extra-math.ts
   ("g r a" (make 'gra)) ; requires extra-math.ts
-  )
+  ("i d x tab" (insert '(big-around "<int>" (concat "<mathd>" "x")))))
 
 (kbd-map
  ("D e f tab" (make 'definition))
@@ -52,6 +52,7 @@
  ("C o r tab" (make 'corollary))
  ("P r f tab" (make 'proof))
  ("P a r tab" (make 'paragraph))
+ ("A l g tab" (make 'algorithm))
  ("E x tab" (make 'exercise))
  ("P b tab" (make 'problem))
  ("a ) tab" (make 'enumerate-alpha) (make 'item))
