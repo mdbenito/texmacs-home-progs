@@ -58,6 +58,9 @@
         (go-end-line)
         (selection-set-end))))
 
+(tm-define (toggle-selection-comment)
+  (display "Not implemented for this language"))
+
 ; TODO: try to keep as much of the selection as possible after insert
 ; selection-get-start and -end are invalid after the insertion and need
 ; some finagling
@@ -109,20 +112,18 @@
   (clipboard-cut-export "scheme" "primary")
   (key-press "delete"))
 
+
 (tm-define (duplicate-code)
-  (when (selection-active?)
-    (let* ((t (cursor-tree))
-           (row (tree-index t))
-           (p (tree-up t)))
-       (tree-insert p row (list (tree-copy (selection-tree)))))))
+  (display "Not implemented for this language"))
 
 (tm-define (duplicate-code)
   (:mode in-prog?)
-  (:require (not (selection-active-any?)))
   (let* ((t (cursor-tree))
          (p (tree-up t))
          (row (tree-index t)))
-    (tree-insert p row (list (tree-copy t)))))
+    (if (selection-active?)
+        (tree-insert p row (list (tree-copy (selection-tree))))
+        (tree-insert p row (list (tree-copy t))))))
 
 (define (program-move-line t offset)
   (let* ((col (program-column-number))
