@@ -6,7 +6,6 @@
 
 (use-modules (ice-9 regex))
 
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Toggling of comments for lines and selections
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -92,6 +91,7 @@
 ;(define (test x y) (== (toggle-line-comment (toggle-line-comment x)) y))
 ;(map test '("" ";" " ;a" ";;;a") '("" ";" " ;a" ";a"))
 
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Copy, cut and duplicate whole lines
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -109,19 +109,83 @@
   (clipboard-cut-export "scheme" "primary")
   (key-press "delete"))
 
-(tm-define (duplicate-line)
+(tm-define (duplicate-code)
+  (when (selection-active?)
+    (let* ((t (cursor-tree))
+           (row (tree-index t))
+           (p (tree-up t)))
+       (tree-insert p row (list (tree-copy (selection-tree)))))))
+
+(tm-define (duplicate-code)
   (:mode in-prog?)
   (:require (not (selection-active-any?)))
-  (select-line)
-  (clipboard-cut "nowhere")
-  (insert `(document ,(tm->string (tm-ref (clipboard-get "nowhere") 1))
-                     ,(tm->string (tm-ref (clipboard-get "nowhere") 1)))))
+  (let* ((t (cursor-tree))
+         (p (tree-up t))
+         (row (tree-index t)))
+    (tree-insert p row (list (tree-copy t)))))
+
+(define (program-move-line t offset)
+  (let* ((col (program-column-number))
+         (p (tree-up t))
+         (row (tree-index t))
+         (above (tree-ref p (+ row offset)))
+         (tmp (tree-copy above)))
+    (tree-set above (tree-copy t))
+    (tree-set t tmp)
+    (program-go-to (+ row offset) col)))
+
+(define (program-move-rows-up from to)
+  (let* ((p (tree-up (cursor-tree)))
+         (offset -1)
+         (dest (+ from offset))
+         (maxrows (tree-arity p))
+         (save (tree-copy (tree-ref p dest))))
+    (when (and (> dest 0) (< dest maxrows))
+      (tree-remove p (+ from offset) 1)
+      (tree-insert p (min (max 0 to) maxrows) (list save)))))
+
+(define (program-move-rows-down from to)
+  (let* ((p (tree-up (cursor-tree)))
+         (offset 1)
+         (dest (+ to offset))
+         (maxrows (tree-arity p)))
+    (when (and (> dest 0) (< dest maxrows))
+      (with save (tree-copy (tree-ref p dest))
+        (tree-remove p dest 1)
+        (tree-insert p from (list save))))))
+
+(define (program-path-row-update p offset)
+  "Updates path @p to be @offset rows up or down"
+  (let* ((rev (reverse p))
+         (col (car rev))
+         (row (cadr rev))
+         (max-rows (tree-arity (tree-up (cursor-tree)))))
+  (reverse (cons col (cons (min (max 0 (+ row offset)) max-rows) (cddr rev))))))
+
+(tm-define (program-move dir)
+  (with action (if (== dir :up) program-move-rows-up program-move-rows-down)
+    (if (selection-active?)
+        (let ((from (selection-get-start))
+              (to (selection-get-end))
+              (offset (if (== dir :up) -1 1)))
+          (action (cADr from) (cADr to))
+          ; keep the selection:
+          (selection-set (program-path-row-update from offset)
+                         (program-path-row-update to offset)))
+        (action (program-row-number) (program-row-number)))))
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Shortcuts
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(lazy-keyboard-force #t)
+
 (kbd-map
   (:mode in-prog?)
   ("C-;" (toggle-comment))
-  ("C-d" (duplicate-line)))
+  ("C-d" (duplicate-code))
+  ("C-left" (traverse-left))
+  ("C-right" (traverse-right))
+  ("C-up" (program-move :up))
+  ("C-down" (program-move :down)))
