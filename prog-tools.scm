@@ -179,8 +179,19 @@
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Other stuff
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(tm-define (prog-go-to-line n)
+  (:interactive #t)
+  (:argument n "line number")
+  (go-to-line (string->number n)))
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Shortcuts
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 
 (lazy-keyboard-force #t)
 
@@ -191,9 +202,11 @@
   ("C-left" (traverse-left))
   ("C-right" (traverse-right))
   ("C-up" (program-move :up))
-  ("C-down" (program-move :down)))
+  ("C-down" (program-move :down))
+  ("A-0" (prog-go-to-line 1))
+  ("A-g" (interactive prog-go-to-line "Go to line")))
 
-; FIXME: this doesn't really work
+; FIXME: this doesn't always work as expected
 (tm-define (kbd-variant t forwards?)
   (:mode in-prog-scheme?)
   (:require (string-null? (cursor-word)))
