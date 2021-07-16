@@ -203,7 +203,6 @@
   ("C-right" (traverse-right))
   ("C-up" (program-move :up))
   ("C-down" (program-move :down))
-  ("A-0" (prog-go-to-line 1))
   ("A-g" (interactive prog-go-to-line "Go to line")))
 
 ; FIXME: this doesn't always work as expected
